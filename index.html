@@ -18,7 +18,7 @@
 #googleSignInBtn:hover{background:#f7f7f7;}
 #loginError{color:#c0392b;font-size:13px;margin-top:16px;display:none;}
 body.app-hidden > *:not(#loginGate){visibility:hidden;}
-#signOutBtn{position:fixed;bottom:16px;right:16px;z-index:1000;background:transparent;border:1px solid #ccc;border-radius:6px;padding:6px 12px;font-size:12px;color:#667;cursor:pointer;background:#fff;}
+#signOutBtn{position:fixed;top:16px;right:16px;z-index:1000;background:transparent;border:1px solid #ccc;border-radius:6px;padding:6px 12px;font-size:12px;color:#667;cursor:pointer;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.08);}
 </style>
 <style>
 :root{
@@ -96,6 +96,8 @@ main{max-width:1220px;margin:0 auto;padding:40px 32px 70px;flex:1;display:flex;f
 .col-stats{text-align:right;}
 .col-count{font-family:var(--font-h);font-weight:800;font-size:1.15rem;color:var(--navy);line-height:1;}
 .col-value{font-size:10.5px;color:var(--sub);margin-top:3px;font-weight:600;}
+.col-add{background:#F2F8FA;border:none;color:var(--navy);width:28px;height:28px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;flex-shrink:0;margin-left:10px;}
+.col-add:hover{background:var(--navy);color:#fff;}
 
 .card{background:#FAFCFD;border-radius:var(--r-md);padding:15px 17px;margin-bottom:11px;cursor:pointer;border-left:4px solid var(--navy);display:flex;flex-wrap:wrap;align-items:center;gap:12px;transition:.16s;box-shadow:var(--shadow-sm);}
 .card:hover{transform:translateX(3px);box-shadow:var(--shadow-md);background:#fff;}
@@ -258,6 +260,7 @@ main{max-width:1220px;margin:0 auto;padding:40px 32px 70px;flex:1;display:flex;f
           <div class="stage-icon active" id="icon-active"></div>
           <div class="col-titles"><div class="col-title">Active Now</div></div>
           <div class="col-stats"><div class="col-count" id="count-active">0</div><div class="col-value" id="value-active">€0</div></div>
+          <button class="col-add" id="addActiveBtn" title="Add project"></button>
         </div>
         <div id="list-active"></div>
       </div>
@@ -266,6 +269,7 @@ main{max-width:1220px;margin:0 auto;padding:40px 32px 70px;flex:1;display:flex;f
           <div class="stage-icon closing" id="icon-closing"></div>
           <div class="col-titles"><div class="col-title">Closing in 6 Months</div></div>
           <div class="col-stats"><div class="col-count" id="count-closing">0</div><div class="col-value" id="value-closing">€0</div></div>
+          <button class="col-add" id="addClosingBtn" title="Add project"></button>
         </div>
         <div id="list-closing"></div>
       </div>
@@ -274,6 +278,7 @@ main{max-width:1220px;margin:0 auto;padding:40px 32px 70px;flex:1;display:flex;f
           <div class="stage-icon progress" id="icon-progress"></div>
           <div class="col-titles"><div class="col-title">Won</div></div>
           <div class="col-stats"><div class="col-count" id="count-progress">0</div><div class="col-value" id="value-progress">€0</div></div>
+          <button class="col-add" id="addProgressBtn" title="Add project"></button>
         </div>
         <div id="list-progress"></div>
       </div>
@@ -594,6 +599,12 @@ function openProjectModal(project, defMonth, defYear, defStatus){
 }
 
 document.getElementById('fabAdd').addEventListener('click', ()=>openProjectModal(null));
+document.getElementById('addActiveBtn').innerHTML = ICONS.plusSmall;
+document.getElementById('addClosingBtn').innerHTML = ICONS.plusSmall;
+document.getElementById('addProgressBtn').innerHTML = ICONS.plusSmall;
+document.getElementById('addActiveBtn').addEventListener('click', (e)=>{ e.stopPropagation(); openProjectModal(null, null, null, 'active'); });
+document.getElementById('addClosingBtn').addEventListener('click', (e)=>{ e.stopPropagation(); openProjectModal(null, null, null, 'closing'); });
+document.getElementById('addProgressBtn').addEventListener('click', (e)=>{ e.stopPropagation(); openProjectModal(null, null, null, 'progress'); });
 
 document.getElementById('saveProjectBtn').addEventListener('click', ()=>{
   const name = document.getElementById('pName').value.trim();
