@@ -227,6 +227,21 @@ main{max-width:1220px;margin:0 auto;padding:40px 32px 70px;flex:1;display:flex;f
 .close-x{position:absolute;top:18px;right:18px;border:none;background:none;color:var(--sub);cursor:pointer;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;}
 .close-x:hover{background:#F2F6F8;}
 .goal-hint{font-size:11px;color:var(--sub);margin-top:-9px;margin-bottom:17px;}
+/* ---- multi-year split ---- */
+.split-toggle{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--ink);cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0;margin-bottom:0;}
+.split-toggle input{width:auto;margin:0;accent-color:var(--teal);cursor:pointer;}
+#splitBox{background:#F7FBFC;border:1.5px solid #E3ECF0;border-radius:var(--r-sm);padding:13px;margin-top:11px;}
+.split-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
+.split-row input{padding:8px 9px;border:1.5px solid #E3ECF0;border-radius:6px;font-family:var(--font-b);font-size:0.85rem;color:var(--ink);background:#fff;}
+.split-row .sp-year{width:74px;}
+.split-row .sp-pct{width:62px;}
+.split-row .sp-prev{flex:1;font-size:11px;color:var(--sub);font-weight:600;white-space:nowrap;}
+.split-row .sp-del{background:#fff;border:1.5px solid #F3D9D6;color:#C0392B;width:28px;height:28px;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.split-row .sp-del:hover{background:#FDECEA;}
+#addSplitRow{background:#EAF2F5;border:none;color:var(--navy);font-family:var(--font-h);font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:8px 12px;border-radius:6px;cursor:pointer;}
+#addSplitRow:hover{background:var(--navy);color:#fff;}
+#splitSummary{font-size:11px;margin-top:9px;font-weight:600;}
+.card .splitbadge{font-size:10px;font-weight:700;color:var(--muted);background:#EEF3F5;padding:4px 8px;border-radius:20px;flex-shrink:0;letter-spacing:.2px;}
 </style>
 </head>
 <body class="app-hidden">
@@ -457,6 +472,14 @@ main{max-width:1220px;margin:0 auto;padding:40px 32px 70px;flex:1;display:flex;f
         </div>
       </div>
     </div>
+    <div class="field" style="margin-bottom:0;">
+      <label class="split-toggle"><input type="checkbox" id="pSplitToggle"> Verdeel omzet over meerdere jaren</label>
+    </div>
+    <div id="splitBox">
+      <div id="splitRows"></div>
+      <button type="button" id="addSplitRow">+ jaar toevoegen</button>
+      <div id="splitSummary"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-delete" id="deleteProjectBtn" style="display:none;"></button>
       <button class="btn btn-delete" id="exportProjectBtn" style="display:none;" title="Export PDF summary"></button>
@@ -675,6 +698,33 @@ function fmtMoney(n){
 }
 function trimZeros(v){ return (v % 1 === 0) ? String(v) : String(v); }
 
+/* ---------- MULTI-YEAR REVENUE SPLIT ---------- */
+/* p.splits = { "2026": 10, "2027": 90 }  (percentages, sum 100).
+   Absent  -> 100% of the amount lands in p.year (original behaviour). */
+function hasSplit(p){ return p && p.splits && Object.keys(p.splits).length > 0; }
+
+function splitPct(p, year){
+  if(!hasSplit(p)) return (p.year === year) ? 100 : 0;
+  return parseFloat(p.splits[String(year)]) || 0;
+}
+
+function allocated(p, year){
+  return (p.amount || 0) * splitPct(p, year) / 100;
+}
+
+function projectYears(p){
+  if(!hasSplit(p)) return [p.year];
+  return Object.keys(p.splits).map(Number).filter(y => (parseFloat(p.splits[String(y)]) || 0) > 0);
+}
+
+function inYear(p, year){
+  return projectYears(p).indexOf(year) !== -1;
+}
+
+function projectsInYear(year){
+  return projects.filter(p => inYear(p, year));
+}
+
 /* ---------- TABS ---------- */
 document.querySelectorAll('.tab-btn').forEach(btn=>{
   btn.addEventListener('click', ()=>{
@@ -716,6 +766,84 @@ document.querySelectorAll('#btnImportActive, #btnImportProgress, #btnImportClosi
 
 function unitDivisor(u){ return u==='M' ? 1e6 : 1e3; }
 
+/* ---------- SPLIT EDITOR ---------- */
+function currentAmountValue(){
+  const unitEl = document.querySelector('#btnUnitK.sel, #btnUnitM.sel');
+  const unit = unitEl ? unitEl.dataset.unit : 'M';
+  const raw = parseFloat(document.getElementById('pAmount').value) || 0;
+  return raw * unitDivisor(unit);
+}
+
+function splitRowHTML(year, pct){
+  return `<div class="split-row">
+    <input type="number" class="sp-year" value="${year}" step="1">
+    <input type="number" class="sp-pct" value="${pct}" min="0" max="100" step="1">
+    <span class="sp-prev"></span>
+    <button type="button" class="sp-del" title="Verwijder">&times;</button>
+  </div>`;
+}
+
+function readSplitRows(){
+  return Array.from(document.querySelectorAll('#splitRows .split-row')).map(r => ({
+    year: parseInt(r.querySelector('.sp-year').value),
+    pct: parseFloat(r.querySelector('.sp-pct').value)
+  }));
+}
+
+function updateSplitSummary(){
+  const rows = readSplitRows();
+  const total = rows.reduce((s,r)=> s + (isNaN(r.pct) ? 0 : r.pct), 0);
+  const amount = currentAmountValue();
+  document.querySelectorAll('#splitRows .split-row').forEach((r,i)=>{
+    const pct = rows[i].pct;
+    r.querySelector('.sp-prev').textContent = (!isNaN(pct) && amount) ? fmtMoney(amount * pct / 100) : '';
+  });
+  const el = document.getElementById('splitSummary');
+  const rounded = Math.round(total * 100) / 100;
+  if(rounded === 100){ el.textContent = 'Totaal 100% — in orde.'; el.style.color = '#1B7A3D'; }
+  else { el.textContent = 'Totaal ' + rounded + '% — moet 100% zijn.'; el.style.color = '#C0392B'; }
+}
+
+function bindSplitRows(){
+  document.querySelectorAll('#splitRows .sp-del').forEach(b=>{
+    b.onclick = () => { b.closest('.split-row').remove(); updateSplitSummary(); };
+  });
+  document.querySelectorAll('#splitRows input').forEach(i=>{ i.oninput = updateSplitSummary; });
+  updateSplitSummary();
+}
+
+function setSplitRows(pairs){
+  document.getElementById('splitRows').innerHTML = pairs.map(p=>splitRowHTML(p.year, p.pct)).join('');
+  bindSplitRows();
+}
+
+function setSplitVisible(on){
+  document.getElementById('splitBox').style.display = on ? 'block' : 'none';
+  document.getElementById('pSplitToggle').checked = on;
+}
+
+document.getElementById('pSplitToggle').addEventListener('change', (e)=>{
+  if(e.target.checked){
+    setSplitVisible(true);
+    if(!document.querySelectorAll('#splitRows .split-row').length){
+      const y = parseInt(document.getElementById('pYear').value) || calYear;
+      setSplitRows([{year:y, pct:100}, {year:y+1, pct:0}]);
+    } else { updateSplitSummary(); }
+  } else {
+    setSplitVisible(false);
+  }
+});
+
+document.getElementById('addSplitRow').addEventListener('click', ()=>{
+  const rows = readSplitRows();
+  const nextYear = rows.length ? Math.max(...rows.map(r=>r.year||calYear)) + 1 : calYear;
+  document.getElementById('splitRows').insertAdjacentHTML('beforeend', splitRowHTML(nextYear, 0));
+  bindSplitRows();
+});
+
+document.getElementById('pAmount').addEventListener('input', ()=>{ if(document.getElementById('pSplitToggle').checked) updateSplitSummary(); });
+document.querySelectorAll('#btnUnitK, #btnUnitM').forEach(b=>b.addEventListener('click', ()=>{ if(document.getElementById('pSplitToggle').checked) updateSplitSummary(); }));
+
 function openProjectModal(project, defMonth, defYear, defStatus){
   editingId = project ? project.id : null;
   document.getElementById('projectModalTitle').textContent = project ? 'Edit Project' : 'Add Project';
@@ -741,6 +869,16 @@ function openProjectModal(project, defMonth, defYear, defStatus){
   }
   document.getElementById('pAmount').value = amtVal;
   document.querySelectorAll('#btnUnitK, #btnUnitM').forEach(x=>x.classList.toggle('sel', x.dataset.unit===unit));
+
+  if(project && hasSplit(project)){
+    const pairs = Object.keys(project.splits).map(y=>({ year: parseInt(y), pct: parseFloat(project.splits[y]) }))
+                        .sort((a,b)=>a.year-b.year);
+    setSplitRows(pairs);
+    setSplitVisible(true);
+  } else {
+    document.getElementById('splitRows').innerHTML = '';
+    setSplitVisible(false);
+  }
 
   document.getElementById('deleteProjectBtn').style.display = project ? 'flex' : 'none';
   openOverlay('projectOverlay');
@@ -768,10 +906,22 @@ document.getElementById('saveProjectBtn').addEventListener('click', ()=>{
   const amount = rawAmt * unitDivisor(unit);
   const winProb = (status==='closing' || status==='active') ? parseInt(document.getElementById('pWinProb').value) : null;
 
+  let splits = null;
+  if(document.getElementById('pSplitToggle').checked){
+    const rows = readSplitRows().filter(r => !isNaN(r.year) && !isNaN(r.pct) && r.pct > 0);
+    const total = Math.round(rows.reduce((s,r)=>s+r.pct,0) * 100) / 100;
+    if(!rows.length){ alert('Voeg minstens één jaar toe aan de verdeling.'); return; }
+    if(total !== 100){ alert('De verdeling telt op tot ' + total + '%. Dit moet 100% zijn.'); return; }
+    splits = {};
+    rows.forEach(r => { splits[String(r.year)] = r.pct; });
+  }
+
   if(editingId){
-    projectsRef.child(editingId).update({name, projectName, country, status, note, month, year, amount, winProb});
+    projectsRef.child(editingId).update({name, projectName, country, status, note, month, year, amount, winProb, splits});
   } else {
-    projectsRef.push({name, projectName, country, status, note, month, year, amount, winProb});
+    const payload = {name, projectName, country, status, note, month, year, amount, winProb};
+    if(splits) payload.splits = splits;
+    projectsRef.push(payload);
   }
   closeOverlay('projectOverlay');
 });
@@ -805,6 +955,7 @@ function exportProjectPDF(p){
     ['Stage', 'Closing This Year'],
     ['Expected close', (p.month>=0 ? MONTHS[p.month]+' ' : 'TBD ') + p.year],
     ['Deal value', fmtMoney(p.amount)],
+    ['Verdeling', hasSplit(p) ? projectYears(p).sort().map(y=>y+': '+splitPct(p,y)+'% ('+fmtMoney(allocated(p,y))+')').join('   ') : '100% in ' + p.year],
     ['Chance of winning', (p.winProb!=null ? p.winProb+'%' : '—')]
   ];
 
@@ -862,7 +1013,7 @@ document.getElementById('openExportReportBtn').addEventListener('click', ()=>{
 });
 
 function reportGroups(){
-  const yearProjects = projects.filter(p=>p.year===calYear);
+  const yearProjects = projectsInYear(calYear);
   const pipeline = yearProjects
     .filter(p=>p.status==='active' || p.status==='closing')
     .sort((a,b)=> (b.winProb||0) - (a.winProb||0));
@@ -881,11 +1032,13 @@ document.getElementById('exportReportExcelBtn').addEventListener('click', ()=>{
     'Stage': STAGE_LABELS[p.status] || p.status,
     'Month': p.month>=0 ? MONTHS[p.month] : 'TBD',
     'Year': p.year,
-    'Amount (€)': p.amount || 0,
+    'Amount (€) dit jaar': allocated(p, calYear),
+    'Totale dealwaarde (€)': p.amount || 0,
+    'Aandeel dit jaar (%)': splitPct(p, calYear),
     'Chance of winning (%)': p.winProb!=null ? p.winProb : '',
     'Note': p.note || ''
   });
-  const colWidths = [{wch:22},{wch:22},{wch:16},{wch:18},{wch:8},{wch:8},{wch:14},{wch:18},{wch:30}];
+  const colWidths = [{wch:22},{wch:22},{wch:16},{wch:18},{wch:8},{wch:8},{wch:18},{wch:20},{wch:18},{wch:18},{wch:30}];
 
   const wb = XLSX.utils.book_new();
   const wsPipeline = XLSX.utils.json_to_sheet(pipeline.map(toRow));
@@ -988,7 +1141,7 @@ document.getElementById('exportReportPdfBtn').addEventListener('click', ()=>{
       p.projectName || '—',
       p.country || '—',
       p.month>=0 ? MONTHS[p.month] : 'TBD',
-      fmtMoney(p.amount),
+      fmtMoney(allocated(p, calYear)) + (hasSplit(p) ? ' ('+splitPct(p,calYear)+'%)' : ''),
       p.winProb!=null ? p.winProb+'%' : '—'
     ]);
   });
@@ -1004,11 +1157,11 @@ document.getElementById('exportReportPdfBtn').addEventListener('click', ()=>{
       p.name || '—',
       p.projectName || '—',
       p.country || '—',
-      fmtMoney(p.amount)
+      fmtMoney(allocated(p, calYear)) + (hasSplit(p) ? ' ('+splitPct(p,calYear)+'%)' : '')
     ]);
   });
 
-  const wonTotal = won.reduce((s,p)=>s+(p.amount||0), 0);
+  const wonTotal = won.reduce((s,p)=>s+allocated(p, calYear), 0);
   y = ensureSpace(y, 10);
   y += 3;
   doc.setFont('helvetica','bold');
@@ -1127,8 +1280,8 @@ function yearProgress(year){
 
 function renderGoal(){
   const goal = goals[calYear] || 0;
-  const gained = projects.filter(p=>p.status==='progress' && p.year===calYear).reduce((s,p)=>s+(p.amount||0),0);
-  const expected = projects.filter(p=>p.status==='closing' && p.year===calYear).reduce((s,p)=>s+(p.amount||0),0);
+  const gained = projects.filter(p=>p.status==='progress' && inYear(p,calYear)).reduce((s,p)=>s+allocated(p,calYear),0);
+  const expected = projects.filter(p=>p.status==='closing' && inYear(p,calYear)).reduce((s,p)=>s+allocated(p,calYear),0);
   const remaining = Math.max(goal - gained - expected, 0);
   const pct = goal>0 ? Math.min(gained/goal, 1) : 0;
   const pctCombined = goal>0 ? Math.min((gained+expected)/goal, 1) : 0;
@@ -1156,6 +1309,9 @@ function wpClass(wp){ return wp>=67 ? 'wp-high' : (wp>=34 ? 'wp-mid' : 'wp-low')
 
 function cardHTML(p){
   const when = p.month>=0 ? (MONTHS[p.month]+' '+p.year) : ('TBD '+p.year);
+  const alloc = allocated(p, calYear);
+  const pct = splitPct(p, calYear);
+  const splitBadge = hasSplit(p) ? `<span class="splitbadge" title="${pct}% van ${fmtMoney(p.amount)}">${pct}% · ${fmtMoney(p.amount)}</span>` : '';
   const metaParts = [p.projectName, p.country].filter(Boolean).map(escapeHTML);
   const meta = metaParts.length ? `<div class="meta">${metaParts.join(' · ')}</div>` : '';
   const note = p.note ? `<div class="note">${escapeHTML(p.note)}</div>` : '';
@@ -1164,24 +1320,25 @@ function cardHTML(p){
   const isHigh = hasProb && p.winProb!=null && p.winProb>=67;
   return `<div class="card${isHigh ? ' high-chance' : ''}" data-id="${p.id}">
     <div class="card-main"><div class="name">${escapeHTML(p.name)}</div>${meta}<div class="when">${when}</div></div>
+    ${splitBadge}
     ${winBadge}
-    ${p.amount ? `<span class="amt">${fmtMoney(p.amount)}</span>` : ''}
+    ${p.amount ? `<span class="amt">${fmtMoney(alloc)}</span>` : ''}
     ${note}
   </div>`;
 }
 function escapeHTML(s){ return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function renderBoard(){
-  const active = projects.filter(p=>p.status==='active' && p.year===calYear).sort((a,b)=>(b.winProb||0)-(a.winProb||0));
-  const progress = projects.filter(p=>p.status==='progress' && p.year===calYear).sort((a,b)=>(a.month-b.month));
-  const closing = projects.filter(p=>p.status==='closing' && p.year===calYear).sort((a,b)=>(b.winProb||0)-(a.winProb||0));
+  const active = projects.filter(p=>p.status==='active' && inYear(p,calYear)).sort((a,b)=>(b.winProb||0)-(a.winProb||0));
+  const progress = projects.filter(p=>p.status==='progress' && inYear(p,calYear)).sort((a,b)=>(a.month-b.month));
+  const closing = projects.filter(p=>p.status==='closing' && inYear(p,calYear)).sort((a,b)=>(b.winProb||0)-(a.winProb||0));
 
   document.getElementById('count-active').textContent = active.length;
-  document.getElementById('value-active').textContent = fmtMoney(active.reduce((s,p)=>s+(p.amount||0),0));
+  document.getElementById('value-active').textContent = fmtMoney(active.reduce((s,p)=>s+allocated(p,calYear),0));
   document.getElementById('count-progress').textContent = progress.length;
-  document.getElementById('value-progress').textContent = fmtMoney(progress.reduce((s,p)=>s+(p.amount||0),0));
+  document.getElementById('value-progress').textContent = fmtMoney(progress.reduce((s,p)=>s+allocated(p,calYear),0));
   document.getElementById('count-closing').textContent = closing.length;
-  document.getElementById('value-closing').textContent = fmtMoney(closing.reduce((s,p)=>s+(p.amount||0),0));
+  document.getElementById('value-closing').textContent = fmtMoney(closing.reduce((s,p)=>s+allocated(p,calYear),0));
 
   const emptyHTML = `<div class="empty-row">${ICONS.inbox}<span>No projects yet</span></div>`;
   document.getElementById('list-active').innerHTML = active.length ? active.map(cardHTML).join('') : emptyHTML;
@@ -1235,12 +1392,12 @@ function renderCalendar(){
   const grid = document.getElementById('calGrid');
   grid.innerHTML = '';
   for(let m=0;m<12;m++){
-    const items = projects.filter(p=>p.month===m && p.year===calYear).sort((a,b)=>a.name.localeCompare(b.name));
+    const items = projects.filter(p=>p.month===m && inYear(p,calYear)).sort((a,b)=>a.name.localeCompare(b.name));
     const isCurrent = (calYear===now.getFullYear() && m===now.getMonth());
     const box = document.createElement('div');
     box.className = 'month-box' + (isCurrent?' current':'');
     box.innerHTML = `<div class="month-box-head"><span class="month-name">${MONTHS[m]}</span><button class="month-add" data-m="${m}">${ICONS.plusSmall}</button></div>` +
-      items.map(p=>`<div class="chip ${p.status==='closing'?'closing':(p.status==='active'?'active':'')}" data-id="${p.id}"><span class="cname">${escapeHTML(p.name)}</span>${p.amount?`<span class="camt">${fmtMoney(p.amount)}</span>`:''}</div>`).join('');
+      items.map(p=>`<div class="chip ${p.status==='closing'?'closing':(p.status==='active'?'active':'')}" data-id="${p.id}"><span class="cname">${escapeHTML(p.name)}</span>${p.amount?`<span class="camt">${fmtMoney(allocated(p,calYear))}</span>`:''}</div>`).join('');
     grid.appendChild(box);
   }
   grid.querySelectorAll('.month-add').forEach(btn=>{
