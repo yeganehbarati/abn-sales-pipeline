@@ -23,6 +23,14 @@
 #googleSignInBtn{display:inline-flex;align-items:center;gap:10px;background:#fff;border:1px solid #d0d5dd;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;color:#333;cursor:pointer;}
 #googleSignInBtn:hover{background:#f7f7f7;}
 #loginError{color:#c0392b;font-size:13px;margin-top:16px;display:none;}
+.login-divider{display:flex;align-items:center;gap:10px;margin:22px 0 16px;color:#aab;font-size:11px;text-transform:uppercase;letter-spacing:1px;}
+.login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:#e3ecf0;}
+#emailInput{width:100%;padding:11px 13px;border:1.5px solid #d0d5dd;border-radius:8px;font-family:'Inter',sans-serif;font-size:13px;color:#0b1f33;margin-bottom:10px;}
+#emailInput:focus{outline:none;border-color:#1B93A5;box-shadow:0 0 0 3px rgba(27,147,165,0.12);}
+#emailLinkBtn{width:100%;padding:11px;border:none;border-radius:8px;background:#004974;color:#fff;font-family:'Montserrat',sans-serif;font-size:12px;font-weight:700;letter-spacing:.5px;cursor:pointer;transition:.15s;}
+#emailLinkBtn:hover{background:#1B93A5;}
+#emailLinkBtn:disabled{opacity:.5;cursor:default;}
+#emailMsg{font-size:12.5px;margin-top:12px;line-height:1.45;}
 body.app-hidden > *:not(#loginGate){visibility:hidden;}
 #signOutBtn{position:fixed;bottom:16px;left:16px;z-index:1000;background:transparent;border:1px solid #ccc;border-radius:6px;padding:6px 12px;font-size:12px;color:#667;cursor:pointer;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.08);}
 </style>
@@ -231,6 +239,12 @@ main{max-width:1220px;margin:0 auto;padding:40px 32px 70px;flex:1;display:flex;f
       <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34.5 5.5 29.5 3.5 24 3.5 12.7 3.5 3.5 12.7 3.5 24S12.7 44.5 24 44.5 44.5 35.3 44.5 24c0-1.2-.1-2.4-.9-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34.5 5.5 29.5 3.5 24 3.5c-7.7 0-14.3 4.3-17.7 10.7z"/><path fill="#4CAF50" d="M24 44.5c5.4 0 10.3-1.8 14-5l-6.4-5.4c-2 1.4-4.6 2.4-7.6 2.4-5.3 0-9.7-3.1-11.3-7.9l-6.6 5.1C9.6 40.1 16.3 44.5 24 44.5z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.3 5.7l6.4 5.4C40.9 37 44.5 31.4 44.5 24c0-1.2-.1-2.4-.9-3.5z"/></svg>
       Sign in with Google
     </button>
+    <div class="login-divider"><span>or</span></div>
+
+    <input id="emailInput" type="email" placeholder="voornaam.naam@abn-cleanroomtechnology.com" autocomplete="email">
+    <button id="emailLinkBtn">Stuur mij een inloglink</button>
+    <div id="emailMsg"></div>
+
     <div id="loginError">You are not authorized to access this dashboard.</div>
   </div>
 </div>
@@ -596,13 +610,67 @@ auth.onAuthStateChanged(user => {
 
 document.getElementById('googleSignInBtn').addEventListener('click', () => {
   const provider = new firebase.auth.GoogleAuthProvider();
-  provider.setCustomParameters({ hd: 'abn-cleanroomtechnology.com' });
+  provider.setCustomParameters({ hd: ALLOWED_DOMAIN });
   auth.signInWithPopup(provider).catch(err => {
     console.error(err);
     document.getElementById('loginError').textContent = 'Sign-in failed: ' + err.message;
     document.getElementById('loginError').style.display = 'block';
   });
 });
+
+/* ---------- EMAIL LINK SIGN-IN ---------- */
+const ACTION_CODE_SETTINGS = {
+  url: 'https://yeganehbarati.github.io/abn-sales-pipeline/',
+  handleCodeInApp: true
+};
+
+function emailMsg(text, ok){
+  const el = document.getElementById('emailMsg');
+  el.textContent = text;
+  el.style.color = ok ? '#1B7A3D' : '#c0392b';
+}
+
+document.getElementById('emailLinkBtn').addEventListener('click', () => {
+  const btn = document.getElementById('emailLinkBtn');
+  const email = (document.getElementById('emailInput').value || '').trim().toLowerCase();
+
+  if(!email.endsWith('@' + ALLOWED_DOMAIN)){
+    emailMsg('Gebruik je @' + ALLOWED_DOMAIN + ' adres.', false);
+    return;
+  }
+
+  btn.disabled = true;
+  emailMsg('Bezig met versturen...', true);
+
+  auth.sendSignInLinkToEmail(email, ACTION_CODE_SETTINGS).then(() => {
+    window.localStorage.setItem('emailForSignIn', email);
+    emailMsg('Link verstuurd. Check je mailbox (ook je spam) en klik op de link.', true);
+  }).catch(err => {
+    console.error(err);
+    emailMsg('Fout: ' + err.message, false);
+    btn.disabled = false;
+  });
+});
+
+document.getElementById('emailInput').addEventListener('keydown', (e) => {
+  if(e.key === 'Enter') document.getElementById('emailLinkBtn').click();
+});
+
+/* Handle the click-back from the email */
+if(auth.isSignInWithEmailLink(window.location.href)){
+  let email = window.localStorage.getItem('emailForSignIn');
+  if(!email) email = window.prompt('Bevestig je e-mailadres om in te loggen');
+  if(email){
+    auth.signInWithEmailLink(email.trim().toLowerCase(), window.location.href).then(() => {
+      window.localStorage.removeItem('emailForSignIn');
+      history.replaceState(null, '', ACTION_CODE_SETTINGS.url);
+    }).catch(err => {
+      console.error(err);
+      document.getElementById('loginError').textContent = 'Link ongeldig of verlopen. Vraag een nieuwe aan.';
+      document.getElementById('loginError').style.display = 'block';
+    });
+  }
+}
 
 document.getElementById('signOutBtn').addEventListener('click', () => {
   auth.signOut();
