@@ -88,6 +88,30 @@ main{max-width:1220px;margin:0 auto;padding:40px 32px 70px;flex:1;display:flex;f
 .view.active{display:block;}
 @keyframes fade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
 
+
+/* ---------------- COMPANY SEARCH ---------------- */
+.search-wrap{position:relative;max-width:520px;margin:-10px auto 26px;}
+.search-box{display:flex;align-items:center;gap:9px;background:var(--surface);border:1.5px solid #E3ECF0;border-radius:50px;padding:0 14px;height:38px;box-shadow:var(--shadow-sm);transition:.15s;}
+.search-box:focus-within{border-color:var(--teal);box-shadow:0 0 0 3px rgba(27,147,165,0.12);}
+.search-box svg{color:var(--muted);flex-shrink:0;}
+#companySearch{flex:1;border:none;outline:none;background:transparent;font-family:var(--font-b);font-size:13px;color:var(--ink);height:100%;min-width:0;}
+#companySearch::placeholder{color:#9FB2BB;}
+#searchClear{border:none;background:none;color:#9FB2BB;cursor:pointer;font-size:17px;line-height:1;padding:2px 4px;display:none;}
+#searchClear:hover{color:var(--navy);}
+.search-results{position:absolute;top:44px;left:0;right:0;background:var(--surface);border-radius:var(--r-md);box-shadow:var(--shadow-lg);z-index:50;max-height:340px;overflow-y:auto;display:none;padding:6px;}
+.search-results.open{display:block;}
+.sr-item{display:flex;align-items:center;gap:12px;padding:9px 11px;border-radius:var(--r-sm);cursor:pointer;}
+.sr-item:hover,.sr-item.sel{background:#F2F8FA;}
+.sr-main{flex:1;min-width:0;}
+.sr-name{font-family:var(--font-h);font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sr-name mark{background:#D6F1F4;color:var(--navy);border-radius:3px;padding:0 1px;}
+.sr-meta{font-size:11px;color:var(--sub);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sr-year{font-family:var(--font-h);font-size:11px;font-weight:700;color:var(--navy);background:#EAF2F5;border-radius:20px;padding:4px 10px;flex-shrink:0;}
+.sr-year.other{background:var(--navy);color:#fff;}
+.sr-empty{padding:12px;font-size:12.5px;color:var(--sub);text-align:center;}
+.card.search-hit{animation:searchHit 2.4s ease;}
+@keyframes searchHit{0%,60%{box-shadow:0 0 0 3px var(--cyan),var(--shadow-md);}100%{box-shadow:none;}}
+
 /* ---------------- GOAL HERO CARD ---------------- */
 .goal-card{background:var(--surface);border-radius:var(--r-lg);box-shadow:var(--shadow-md);padding:34px 38px;display:flex;align-items:center;gap:42px;margin-bottom:26px;position:relative;}
 .ring-wrap{position:relative;width:168px;height:168px;flex-shrink:0;}
@@ -334,6 +358,15 @@ main{max-width:1220px;margin:0 auto;padding:40px 32px 70px;flex:1;display:flex;f
         <div class="gf"><div class="num c-pale" id="figExpected">€0</div><div class="tag">Expected</div></div>
         <div class="gf"><div class="num c-gray" id="figRemaining">€0</div><div class="tag">Remaining</div></div>
       </div>
+    </div>
+
+    <div class="search-wrap" id="searchWrap">
+      <div class="search-box">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+        <input type="text" id="companySearch" placeholder="Search companies across all years…" autocomplete="off">
+        <button type="button" id="searchClear" title="Clear">&times;</button>
+      </div>
+      <div class="search-results" id="searchResults"></div>
     </div>
 
     <div class="board">
@@ -1266,6 +1299,82 @@ document.getElementById('saveGoalBtn').addEventListener('click', ()=>{
   goalsRef.child(String(calYear)).set(millions * 1e6);
   closeOverlay('goalOverlay');
 });
+
+
+/* ---------- COMPANY SEARCH (all years) ---------- */
+(function(){
+  const input = document.getElementById('companySearch');
+  const box = document.getElementById('searchResults');
+  const clearBtn = document.getElementById('searchClear');
+  let hits = [], sel = -1;
+
+  function norm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+  function highlight(name, q){
+    const i = norm(name).indexOf(q);
+    if(i<0 || !q) return escapeHTML(name);
+    return escapeHTML(name.slice(0,i)) + '<mark>' + escapeHTML(name.slice(i,i+q.length)) + '</mark>' + escapeHTML(name.slice(i+q.length));
+  }
+  function bestYear(p){
+    const ys = projectYears(p).map(Number).sort((a,b)=>a-b);
+    if(ys.indexOf(calYear)!==-1) return calYear;
+    return ys.reduce((b,y)=>Math.abs(y-calYear)<Math.abs(b-calYear)?y:b, ys[0]);
+  }
+
+  function search(){
+    const q = norm(input.value.trim());
+    clearBtn.style.display = input.value ? 'block' : 'none';
+    if(!q){ box.classList.remove('open'); hits=[]; return; }
+    hits = projects.filter(p => norm(p.name).includes(q) || norm(p.projectName).includes(q) || norm(p.country).includes(q))
+      .sort((a,b)=>{
+        const an = norm(a.name), bn = norm(b.name);
+        const as = an.startsWith(q)?0:(an.includes(q)?1:2), bs = bn.startsWith(q)?0:(bn.includes(q)?1:2);
+        return as-bs || (b.year||0)-(a.year||0) || an.localeCompare(bn);
+      }).slice(0,12);
+    sel = hits.length ? 0 : -1;
+    box.innerHTML = hits.length ? hits.map((p,i)=>{
+      const years = projectYears(p).map(Number).sort((a,b)=>a-b);
+      const yLabel = years.length>1 ? years[0]+'–'+years[years.length-1] : years[0];
+      const meta = [STAGE_LABELS[p.status], p.projectName, p.country].filter(Boolean).map(escapeHTML).join(' · ');
+      return `<div class="sr-item${i===sel?' sel':''}" data-i="${i}">
+        <div class="sr-main"><div class="sr-name">${highlight(p.name||'', q)}</div><div class="sr-meta">${meta}</div></div>
+        <span class="sr-year${inYear(p,calYear)?'':' other'}">${yLabel}</span>
+      </div>`;
+    }).join('') : `<div class="sr-empty">No company found</div>`;
+    box.classList.add('open');
+  }
+
+  function markSel(){ box.querySelectorAll('.sr-item').forEach((el,i)=>el.classList.toggle('sel', i===sel)); }
+
+  function choose(i){
+    const p = hits[i]; if(!p) return;
+    calYear = bestYear(p);
+    renderAll();
+    box.classList.remove('open');
+    input.blur();
+    requestAnimationFrame(()=>{
+      const card = document.querySelector('.board .card[data-id="'+p.id+'"]');
+      if(card){
+        card.scrollIntoView({behavior:'smooth', block:'center'});
+        card.classList.remove('search-hit'); void card.offsetWidth; card.classList.add('search-hit');
+      }
+    });
+  }
+
+  input.addEventListener('input', search);
+  input.addEventListener('focus', ()=>{ if(input.value.trim()) search(); });
+  input.addEventListener('keydown', e=>{
+    if(e.key==='ArrowDown' && hits.length){ e.preventDefault(); sel=(sel+1)%hits.length; markSel(); }
+    else if(e.key==='ArrowUp' && hits.length){ e.preventDefault(); sel=(sel-1+hits.length)%hits.length; markSel(); }
+    else if(e.key==='Enter' && sel>=0){ e.preventDefault(); choose(sel); }
+    else if(e.key==='Escape'){ box.classList.remove('open'); input.blur(); }
+  });
+  box.addEventListener('mousedown', e=>{
+    const item = e.target.closest('.sr-item'); if(!item) return;
+    e.preventDefault(); choose(parseInt(item.dataset.i));
+  });
+  clearBtn.addEventListener('click', ()=>{ input.value=''; search(); input.focus(); });
+  document.addEventListener('click', e=>{ if(!document.getElementById('searchWrap').contains(e.target)) box.classList.remove('open'); });
+})();
 
 /* ---------- YEAR NAV ---------- */
 function goToYear(delta){ calYear += delta; renderAll(); }
